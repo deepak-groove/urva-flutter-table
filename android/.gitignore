@@ -1,0 +1,9 @@
+/.gradle/
+/captures/
+/build/
+local.properties
+GeneratedPluginRegistrant.java
+GeneratedPluginRegistrant.kt
+flutter_export_environment.sh
+**/GeneratedPluginRegistrant.java
+**/GeneratedPluginRegistrant.kt
