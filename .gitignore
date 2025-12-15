@@ -1,0 +1,13 @@
+# Flutter & Dart
+**/build/
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+
+# IDE
+.idea/
+.vscode/
+
+# Generated
+coverage/

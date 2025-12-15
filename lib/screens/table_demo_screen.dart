@@ -17,42 +17,18 @@ class _TableDemoScreenState extends State<TableDemoScreen> {
   @override
   void initState() {
     super.initState();
-    _rows = _generateRows();
-  }
-
-  List<TableRowData> _generateRows() {
-    return List<TableRowData>.generate(50, (index) {
-      final isEven = index % 2 == 0;
+    _rows = List<TableRowData>.generate(50, (index) {
+      final score = 50 + (index * 3) % 40;
       return TableRowData(cells: [
+        TableCellData(text: '${index + 1}', value: index + 1),
+        TableCellData(text: 'Person ${index + 1}'),
+        TableCellData(text: '$score', value: score),
         TableCellData(
-          text: '#${index + 1}',
-          value: index,
+          text: index.isEven ? 'Active' : 'Pending',
           style: TableCellStyle(
-            backgroundColor: isEven ? Colors.blue.shade50 : Colors.white,
-            bold: true,
-          ),
-        ),
-        TableCellData(
-          text: 'Item ${index + 1}',
-          style: TableCellStyle(
-            backgroundColor: isEven ? Colors.blue.shade50 : Colors.white,
-          ),
-        ),
-        TableCellData(
-          text: '${(index * 3) % 100}',
-          value: (index * 3) % 100,
-          style: TableCellStyle(
-            backgroundColor: isEven ? Colors.blue.shade50 : Colors.white,
-            textAlign: TextAlign.end,
-          ),
-        ),
-        TableCellData(
-          text: index % 3 == 0 ? 'High' : 'Low',
-          value: index % 3 == 0 ? 1 : 0,
-          style: TableCellStyle(
-            backgroundColor: isEven ? Colors.blue.shade50 : Colors.white,
-            textColor: index % 3 == 0 ? Colors.red : Colors.green,
-            italic: index % 3 == 0,
+            backgroundColor: index.isEven ? Colors.green.shade50 : Colors.orange.shade50,
+            textColor: index.isEven ? Colors.green.shade800 : Colors.orange.shade800,
+            bold: index.isEven,
           ),
         ),
       ]);
@@ -62,31 +38,48 @@ class _TableDemoScreenState extends State<TableDemoScreen> {
   @override
   Widget build(BuildContext context) {
     final columns = [
-      const TableColumnDef(title: 'ID', width: 90, alignment: TextAlign.center),
+      const TableColumnDef(title: 'ID', width: 72, alignment: TextAlign.center),
       const TableColumnDef(title: 'Name', width: 180),
       const TableColumnDef(title: 'Score', width: 120, alignment: TextAlign.end),
-      const TableColumnDef(title: 'Priority', width: 140),
+      const TableColumnDef(title: 'Status', width: 140),
     ];
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Sticky Sortable Data Table Demo'),
-      ),
-      body: StickySortableDataTable(
-        columns: columns,
-        rows: _rows,
-        initialSort: _sortState,
-        onSortChanged: (state) {
-          setState(() {
-            _sortState = state;
-          });
-        },
-        stickyColumnCount: 1,
-        headerHeight: 48,
-        rowHeight: 44,
-        defaultColumnWidth: 140,
-        tablePadding: const EdgeInsets.all(8),
+      appBar: AppBar(title: const Text('Sticky Sortable Data Table')),
+      body: Padding(
+        padding: const EdgeInsets.all(12),
+        child: StickySortableDataTable(
+          columns: columns,
+          rows: _rows,
+          stickyColumnCount: 1,
+          onSortChanged: (sort) {
+            setState(() {
+              _sortState = sort;
+              _rows = _applySort(_rows, sort);
+            });
+          },
+          externallySorted: true,
+          initialSort: _sortState,
+        ),
       ),
     );
+  }
+
+  List<TableRowData> _applySort(List<TableRowData> rows, SortState sort) {
+    final sorted = List<TableRowData>.from(rows);
+    sorted.sort((a, b) {
+      final cellA = a.cells[sort.columnIndex];
+      final cellB = b.cells[sort.columnIndex];
+      final valueA = cellA.value ?? cellA.text;
+      final valueB = cellB.value ?? cellB.text;
+      final int base;
+      if (valueA is num && valueB is num) {
+        base = valueA.compareTo(valueB);
+      } else {
+        base = valueA.toString().compareTo(valueB.toString());
+      }
+      return sort.direction == SortDirection.asc ? base : -base;
+    });
+    return sorted;
   }
 }

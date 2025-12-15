@@ -2,8 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'models/table_models.dart';
 
-/// A scrollable table with sticky header and sticky first columns that supports
-/// sorting and per-cell styling.
+/// Sticky sortable data table with frozen header row and first column.
 class StickySortableDataTable extends StatefulWidget {
   const StickySortableDataTable({
     super.key,
@@ -23,7 +22,7 @@ class StickySortableDataTable extends StatefulWidget {
     this.isLoading = false,
     this.loadingWidget,
     this.emptyWidget,
-  });
+  }) : assert(stickyColumnCount >= 0);
 
   final List<TableColumnDef> columns;
   final List<TableRowData> rows;
@@ -47,342 +46,328 @@ class StickySortableDataTable extends StatefulWidget {
 }
 
 class _StickySortableDataTableState extends State<StickySortableDataTable> {
-  late List<TableRowData> _sortedRows;
-  SortState? _sortState;
+  late SortState? _sortState = widget.initialSort;
+  late List<TableRowData> _visibleRows = _initialRows();
 
   final ScrollController _verticalScrollableController = ScrollController();
   final ScrollController _verticalStickyController = ScrollController();
-  final ScrollController _horizontalScrollableController = ScrollController();
-  final ScrollController _horizontalHeaderController = ScrollController();
+  final ScrollController _horizontalController = ScrollController();
+  bool _syncingVerticalScroll = false;
 
-  bool _isSyncingVertical = false;
-  bool _isSyncingHorizontal = false;
+  int get _stickyCount => widget.stickyColumnCount.clamp(0, widget.columns.length);
 
   @override
   void initState() {
     super.initState();
-    _sortedRows = List<TableRowData>.from(widget.rows);
-    _sortState = widget.initialSort;
-    if (_sortState != null && !widget.externallySorted) {
-      _applySort(_sortState!);
-    }
-    _verticalScrollableController.addListener(() {
-      _syncVertical(_verticalScrollableController, _verticalStickyController);
-    });
-    _verticalStickyController.addListener(() {
-      _syncVertical(_verticalStickyController, _verticalScrollableController);
-    });
-    _horizontalScrollableController.addListener(() {
-      _syncHorizontal(
-        _horizontalScrollableController,
-        _horizontalHeaderController,
-      );
-    });
-    _horizontalHeaderController.addListener(() {
-      _syncHorizontal(
-        _horizontalHeaderController,
-        _horizontalScrollableController,
-      );
-    });
+    _attachVerticalListeners();
   }
 
   @override
   void didUpdateWidget(covariant StickySortableDataTable oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.rows != widget.rows || oldWidget.externallySorted != widget.externallySorted) {
-      _sortedRows = List<TableRowData>.from(widget.rows);
-      if (_sortState != null && !widget.externallySorted) {
-        _applySort(_sortState!);
-      }
+    if (widget.rows != oldWidget.rows || widget.initialSort != oldWidget.initialSort) {
+      _sortState = widget.initialSort ?? _sortState;
+      _visibleRows = widget.externallySorted
+          ? List<TableRowData>.from(widget.rows)
+          : _sortedRows(widget.rows, _sortState);
     }
   }
 
-  @override
-  void dispose() {
-    _verticalScrollableController.dispose();
-    _verticalStickyController.dispose();
-    _horizontalScrollableController.dispose();
-    _horizontalHeaderController.dispose();
-    super.dispose();
+  List<TableRowData> _initialRows() {
+    if (widget.externallySorted) {
+      return List<TableRowData>.from(widget.rows);
+    }
+    return _sortedRows(widget.rows, _sortState);
   }
 
-  void _syncVertical(ScrollController source, ScrollController target) {
-    if (_isSyncingVertical || !target.hasClients) return;
-    _isSyncingVertical = true;
-    target.jumpTo(source.offset);
-    _isSyncingVertical = false;
+  void _attachVerticalListeners() {
+    _verticalScrollableController.addListener(() {
+      if (_syncingVerticalScroll) return;
+      _syncingVerticalScroll = true;
+      if (_verticalStickyController.hasClients) {
+        _verticalStickyController.jumpTo(_verticalScrollableController.offset);
+      }
+      _syncingVerticalScroll = false;
+    });
+
+    _verticalStickyController.addListener(() {
+      if (_syncingVerticalScroll) return;
+      _syncingVerticalScroll = true;
+      if (_verticalScrollableController.hasClients) {
+        _verticalScrollableController.jumpTo(_verticalStickyController.offset);
+      }
+      _syncingVerticalScroll = false;
+    });
   }
 
-  void _syncHorizontal(ScrollController source, ScrollController target) {
-    if (_isSyncingHorizontal || !target.hasClients) return;
-    _isSyncingHorizontal = true;
-    target.jumpTo(source.offset);
-    _isSyncingHorizontal = false;
+  List<TableRowData> _sortedRows(List<TableRowData> rows, SortState? sort) {
+    if (sort == null) return List<TableRowData>.from(rows);
+    final sorted = List<TableRowData>.from(rows);
+    sorted.sort((a, b) {
+      final cellA = a.cells[sort.columnIndex];
+      final cellB = b.cells[sort.columnIndex];
+      final comparator = widget.columns[sort.columnIndex].comparator;
+      final int result;
+      if (comparator != null) {
+        result = comparator(cellA, cellB);
+      } else {
+        result = _compareDynamic(cellA.value ?? cellA.text, cellB.value ?? cellB.text);
+      }
+      return sort.direction == SortDirection.asc ? result : -result;
+    });
+    return sorted;
+  }
+
+  int _compareDynamic(dynamic a, dynamic b) {
+    if (a == null && b == null) return 0;
+    if (a == null) return -1;
+    if (b == null) return 1;
+    if (a is num && b is num) {
+      return a.compareTo(b);
+    }
+    return a.toString().compareTo(b.toString());
   }
 
   void _onHeaderTap(int columnIndex) {
-    final TableColumnDef column = widget.columns[columnIndex];
+    final column = widget.columns[columnIndex];
     if (!column.sortable) return;
 
     SortDirection nextDirection;
-    if (_sortState == null || _sortState!.columnIndex != columnIndex) {
-      nextDirection = SortDirection.ascending;
+    if (_sortState == null || _sortState?.columnIndex != columnIndex) {
+      nextDirection = SortDirection.desc;
     } else {
-      nextDirection = _sortState!.direction == SortDirection.ascending
-          ? SortDirection.descending
-          : SortDirection.ascending;
+      nextDirection = _sortState!.direction == SortDirection.desc ? SortDirection.asc : SortDirection.desc;
     }
 
-    final SortState newState = SortState(columnIndex: columnIndex, direction: nextDirection);
+    final nextSort = SortState(columnIndex: columnIndex, direction: nextDirection);
     setState(() {
-      _sortState = newState;
+      _sortState = nextSort;
       if (!widget.externallySorted) {
-        _applySort(newState);
+        _visibleRows = _sortedRows(widget.rows, nextSort);
       }
     });
 
-    widget.onSortChanged?.call(newState);
+    widget.onSortChanged?.call(nextSort);
   }
 
-  void _applySort(SortState state) {
-    final comparator = widget.columns[state.columnIndex].comparator ??
-        (TableRowData a, TableRowData b) {
-          final TableCellData? cellA = a.cells.length > state.columnIndex ? a.cells[state.columnIndex] : null;
-          final TableCellData? cellB = b.cells.length > state.columnIndex ? b.cells[state.columnIndex] : null;
-          final dynamic valueA = cellA?.value ?? cellA?.text;
-          final dynamic valueB = cellB?.value ?? cellB?.text;
+  double _columnWidth(TableColumnDef column) => column.width ?? widget.defaultColumnWidth;
 
-          int compare(dynamic left, dynamic right) {
-            if (left == null && right == null) return 0;
-            if (left == null) return -1;
-            if (right == null) return 1;
-            if (left is num && right is num) {
-              return left.compareTo(right);
-            }
-            return left.toString().toLowerCase().compareTo(right.toString().toLowerCase());
-          }
-
-          return compare(valueA, valueB);
-        };
-
-    _sortedRows.sort((a, b) {
-      final result = comparator(a, b);
-      return state.direction == SortDirection.ascending ? result : -result;
-    });
+  double _stickyWidth() {
+    final stickyColumns = widget.columns.take(_stickyCount);
+    return stickyColumns.fold<double>(0, (sum, col) => sum + _columnWidth(col));
   }
 
-  double _columnWidth(int index) {
-    return widget.columns[index].width ?? widget.defaultColumnWidth;
-  }
-
-  Widget _buildHeaderCell(int index) {
-    final column = widget.columns[index];
+  Widget _buildHeaderCell(TableColumnDef column, int index) {
     final isSortedColumn = _sortState?.columnIndex == index;
-    final icon = isSortedColumn
-        ? (_sortState!.direction == SortDirection.ascending
-            ? Icons.arrow_upward
-            : Icons.arrow_downward)
+    final sortIcon = isSortedColumn
+        ? Icon(
+            _sortState?.direction == SortDirection.desc ? Icons.arrow_downward : Icons.arrow_upward,
+            size: 14,
+          )
         : null;
 
-    final Widget label = Row(
-      mainAxisAlignment: _alignmentFromTextAlign(column.alignment),
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        Flexible(
-          child: Text(
-            column.title,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontWeight: FontWeight.w600),
-          ),
-        ),
-        if (icon != null) ...[
-          const SizedBox(width: 4),
-          Icon(icon, size: 16),
-        ],
-      ],
-    );
-
-    final border = Border(
-      right: widget.showVerticalDividers
-          ? BorderSide(color: widget.gridBorderColor ?? Colors.grey.shade300)
-          : BorderSide.none,
-      bottom: BorderSide(color: widget.gridBorderColor ?? Colors.grey.shade300),
-    );
-
-    return GestureDetector(
-      onTap: column.sortable ? () => _onHeaderTap(index) : null,
+    return InkWell(
+      onTap: () => _onHeaderTap(index),
       child: Container(
+        alignment: _alignmentFor(column.alignment),
+        width: _columnWidth(column),
         height: widget.headerHeight,
-        width: _columnWidth(index),
-        decoration: BoxDecoration(
-          color: Colors.grey.shade100,
-          border: border,
-        ),
         padding: const EdgeInsets.symmetric(horizontal: 12),
-        alignment: Alignment.centerLeft,
-        child: label,
+        decoration: _cellDecoration(isHeader: true),
+        child: Row(
+          mainAxisAlignment: _mainAxisFor(column.alignment),
+          children: [
+            Flexible(
+              child: Text(
+                column.title,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ),
+            if (sortIcon != null) ...[
+              const SizedBox(width: 4),
+              sortIcon,
+            ],
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildCell(TableCellData cell, TableColumnDef column) {
+  Widget _buildBodyCell(TableCellData cell, TableColumnDef column) {
     final style = cell.style;
     final textStyle = TextStyle(
       color: style?.textColor,
       fontWeight: style?.bold == true ? FontWeight.bold : FontWeight.normal,
       fontStyle: style?.italic == true ? FontStyle.italic : FontStyle.normal,
     );
-    final border = Border(
-      right: widget.showVerticalDividers
-          ? BorderSide(color: widget.gridBorderColor ?? Colors.grey.shade300)
-          : BorderSide.none,
-      bottom: widget.showHorizontalDividers
-          ? BorderSide(color: widget.gridBorderColor ?? Colors.grey.shade200)
-          : BorderSide.none,
-    );
 
     return Container(
+      alignment: _alignmentFor(style?.textAlign ?? column.alignment),
+      width: _columnWidth(column),
       height: widget.rowHeight,
-      width: _columnWidth(widget.columns.indexOf(column)),
-      decoration: BoxDecoration(
-        color: style?.backgroundColor,
-        border: border,
-      ),
-      padding: style?.padding ?? const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      alignment: _alignmentFromTextAlign(style?.textAlign ?? column.alignment) == MainAxisAlignment.start
-          ? Alignment.centerLeft
-          : _alignmentFromTextAlign(style?.textAlign ?? column.alignment) == MainAxisAlignment.end
-              ? Alignment.centerRight
-              : Alignment.center,
+      padding: style?.padding ?? const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: _cellDecoration(background: style?.backgroundColor),
       child: Text(
         cell.text,
         overflow: TextOverflow.ellipsis,
         style: textStyle,
-        textAlign: style?.textAlign ?? column.alignment,
       ),
     );
   }
 
-  MainAxisAlignment _alignmentFromTextAlign(TextAlign align) {
+  Alignment _alignmentFor(TextAlign? align) {
     switch (align) {
-      case TextAlign.right:
+      case TextAlign.center:
+        return Alignment.center;
       case TextAlign.end:
-        return MainAxisAlignment.end;
+        return Alignment.centerRight;
+      case TextAlign.start:
+        return Alignment.centerLeft;
+      default:
+        return Alignment.centerLeft;
+    }
+  }
+
+  MainAxisAlignment _mainAxisFor(TextAlign? align) {
+    switch (align) {
       case TextAlign.center:
         return MainAxisAlignment.center;
-      case TextAlign.left:
-      case TextAlign.start:
+      case TextAlign.end:
+        return MainAxisAlignment.end;
       default:
         return MainAxisAlignment.start;
     }
   }
 
-  List<TableColumnDef> get _stickyColumns =>
-      widget.columns.take(widget.stickyColumnCount.clamp(0, widget.columns.length)).toList();
-
-  List<TableColumnDef> get _scrollableColumns => widget.columns.skip(_stickyColumns.length).toList();
-
-  @override
-  Widget build(BuildContext context) {
-    if (widget.isLoading) {
-      return widget.loadingWidget ?? const Center(child: CircularProgressIndicator());
-    }
-
-    if (widget.rows.isEmpty) {
-      return widget.emptyWidget ?? const Center(child: Text('No data'));
-    }
-
-    return Padding(
-      padding: widget.tablePadding ?? EdgeInsets.zero,
-      child: Column(
-        children: [
-          _buildHeader(),
-          const SizedBox(height: 2),
-          Expanded(child: _buildBody()),
-        ],
+  BoxDecoration _cellDecoration({bool isHeader = false, Color? background}) {
+    return BoxDecoration(
+      color: background ?? (isHeader ? Colors.grey.shade200 : null),
+      border: Border(
+        right: widget.showVerticalDividers
+            ? BorderSide(color: widget.gridBorderColor ?? Colors.grey.shade300, width: 0.8)
+            : BorderSide.none,
+        bottom: widget.showHorizontalDividers
+            ? BorderSide(color: widget.gridBorderColor ?? Colors.grey.shade300, width: 0.8)
+            : BorderSide.none,
       ),
     );
   }
 
-  Widget _buildHeader() {
+  Widget _buildHeaderRow() {
+    final stickyColumns = widget.columns.take(_stickyCount).toList();
+    final scrollableColumns = widget.columns.skip(_stickyCount).toList();
+
     return Row(
+      key: const Key('sticky_header_row'),
       children: [
-        SizedBox(
-          width: _stickyColumns.fold<double>(0, (sum, c) => sum + _columnWidth(widget.columns.indexOf(c))),
-          child: Row(
-            key: const Key('sticky_header_row'),
-            children: [
-              for (final column in _stickyColumns) _buildHeaderCell(widget.columns.indexOf(column)),
-            ],
-          ),
-        ),
-        Expanded(
-          child: SingleChildScrollView(
-            key: const Key('scrollable_header_row'),
-            controller: _horizontalHeaderController,
-            scrollDirection: Axis.horizontal,
+        if (stickyColumns.isNotEmpty)
+          SizedBox(
+            width: _stickyWidth(),
             child: Row(
               children: [
-                for (final column in _scrollableColumns) _buildHeaderCell(widget.columns.indexOf(column)),
+                for (var i = 0; i < stickyColumns.length; i++) _buildHeaderCell(stickyColumns[i], i),
               ],
             ),
           ),
-        ),
+        if (scrollableColumns.isNotEmpty)
+          Expanded(
+            child: SingleChildScrollView(
+              controller: _horizontalController,
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  for (var i = 0; i < scrollableColumns.length; i++)
+                    _buildHeaderCell(scrollableColumns[i], i + _stickyCount),
+                ],
+              ),
+            ),
+          ),
       ],
     );
   }
 
-  Widget _buildBody() {
+  Widget _buildBodyRows() {
+    final stickyColumns = widget.columns.take(_stickyCount).toList();
+    final scrollableColumns = widget.columns.skip(_stickyCount).toList();
+
+    if (widget.isLoading) {
+      return Center(child: widget.loadingWidget ?? const CircularProgressIndicator());
+    }
+
+    if (_visibleRows.isEmpty) {
+      return Center(child: widget.emptyWidget ?? const Text('No data'));
+    }
+
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SizedBox(
-          width: _stickyColumns.fold<double>(0, (sum, c) => sum + _columnWidth(widget.columns.indexOf(c))),
-          child: ListView.builder(
+        if (stickyColumns.isNotEmpty)
+          SizedBox(
             key: const Key('sticky_column_list'),
-            controller: _verticalStickyController,
-            itemCount: _sortedRows.length,
-            itemBuilder: (context, rowIndex) {
-              final row = _sortedRows[rowIndex];
-              return Row(
-                children: [
-                  for (final column in _stickyColumns)
-                    _buildCell(
-                      row.cells[widget.columns.indexOf(column)],
-                      column,
-                    ),
-                ],
-              );
-            },
+            width: _stickyWidth(),
+            child: ListView.builder(
+              controller: _verticalStickyController,
+              itemCount: _visibleRows.length,
+              itemBuilder: (context, rowIndex) {
+                final row = _visibleRows[rowIndex];
+                final cells = row.cells.take(stickyColumns.length).toList();
+                return Row(
+                  children: [
+                    for (var i = 0; i < cells.length; i++) _buildBodyCell(cells[i], stickyColumns[i]),
+                  ],
+                );
+              },
+            ),
           ),
-        ),
-        Expanded(
-          child: SingleChildScrollView(
-            controller: _horizontalScrollableController,
-            scrollDirection: Axis.horizontal,
-            child: SizedBox(
-              width: _scrollableColumns.fold<double>(0, (sum, c) => sum + _columnWidth(widget.columns.indexOf(c))),
-              child: ListView.builder(
-                key: const Key('scrollable_rows_list'),
-                controller: _verticalScrollableController,
-                itemCount: _sortedRows.length,
-                itemBuilder: (context, rowIndex) {
-                  final row = _sortedRows[rowIndex];
-                  return Row(
-                    children: [
-                      for (final column in _scrollableColumns)
-                        _buildCell(
-                          row.cells[widget.columns.indexOf(column)],
-                          column,
-                        ),
-                    ],
-                  );
-                },
+        if (scrollableColumns.isNotEmpty)
+          Expanded(
+            child: SingleChildScrollView(
+              controller: _horizontalController,
+              scrollDirection: Axis.horizontal,
+              child: SizedBox(
+                width: scrollableColumns.fold<double>(0, (sum, col) => sum + _columnWidth(col)),
+                child: ListView.builder(
+                  key: const Key('scrollable_rows_list'),
+                  controller: _verticalScrollableController,
+                  itemCount: _visibleRows.length,
+                  itemBuilder: (context, rowIndex) {
+                    final row = _visibleRows[rowIndex];
+                    final cells = row.cells.skip(stickyColumns.length).toList();
+                    return Row(
+                      children: [
+                        for (var i = 0; i < cells.length; i++) _buildBodyCell(cells[i], scrollableColumns[i]),
+                      ],
+                    );
+                  },
+                ),
               ),
             ),
           ),
-        ),
       ],
+    );
+  }
+
+  @override
+  void dispose() {
+    _verticalScrollableController.dispose();
+    _verticalStickyController.dispose();
+    _horizontalController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: widget.tablePadding,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildHeaderRow(),
+          const SizedBox(height: 4),
+          Expanded(child: _buildBodyRows()),
+        ],
+      ),
     );
   }
 }

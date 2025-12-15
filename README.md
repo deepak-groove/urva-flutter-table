@@ -33,10 +33,24 @@ Create the following files:
 
 1. `lib/widgets/sticky_sortable_data_table.dart`
 2. `lib/widgets/models/table_models.dart`
-3. *(Optional but recommended)*  
+3. *(Optional but recommended)*
    `lib/screens/table_demo_screen.dart`
-4. *(Optional)*  
+4. *(Optional)*
    `test/sticky_sortable_data_table_test.dart`
+
+---
+
+## Quick start
+
+Run the included demo screen on any Flutter device or emulator:
+
+```bash
+flutter run
+```
+
+The app launches `TableDemoScreen`, which renders `StickySortableDataTable` with
+sample data so you can verify sticky headers/columns, sorting, and cell
+styling.
 
 ---
 

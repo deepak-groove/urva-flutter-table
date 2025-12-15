@@ -1,24 +1,42 @@
 import 'package:flutter/material.dart';
 
-/// Direction of sorting applied to a column.
-enum SortDirection { ascending, descending }
+/// Describes a column in the sticky sortable data table.
+class TableColumnDef {
+  const TableColumnDef({
+    required this.title,
+    this.width,
+    this.alignment,
+    this.sortable = true,
+    this.comparator,
+  });
 
-/// Represents the active sort state of the table.
-class SortState {
-  const SortState({required this.columnIndex, required this.direction});
+  /// Header label for the column.
+  final String title;
 
-  final int columnIndex;
-  final SortDirection direction;
+  /// Fixed width for the column. Falls back to the table default when null.
+  final double? width;
+
+  /// Text alignment for the column cells.
+  final TextAlign? alignment;
+
+  /// Whether the column supports sorting.
+  final bool sortable;
+
+  /// Optional comparator for custom sorting.
+  ///
+  /// When omitted the table will attempt to sort using [TableCellData.value]
+  /// first and fall back to the [TableCellData.text] string.
+  final int Function(TableCellData a, TableCellData b)? comparator;
 }
 
-/// Styling applied to a single cell.
+/// Visual styling for a table cell.
 class TableCellStyle {
   const TableCellStyle({
     this.backgroundColor,
     this.textColor,
     this.bold = false,
     this.italic = false,
-    this.textAlign = TextAlign.start,
+    this.textAlign,
     this.padding,
   });
 
@@ -26,11 +44,11 @@ class TableCellStyle {
   final Color? textColor;
   final bool bold;
   final bool italic;
-  final TextAlign textAlign;
+  final TextAlign? textAlign;
   final EdgeInsets? padding;
 }
 
-/// Data displayed in a single cell.
+/// Represents the content of an individual cell.
 class TableCellData {
   const TableCellData({
     required this.text,
@@ -38,36 +56,32 @@ class TableCellData {
     this.style,
   });
 
-  /// Text shown to the user.
+  /// Human-readable text shown in the cell.
   final String text;
 
-  /// Value used for sorting; falls back to [text] if null.
+  /// Optional raw value used for sorting.
   final dynamic value;
 
-  /// Optional styling information for the cell.
+  /// Style for the cell.
   final TableCellStyle? style;
 }
 
-/// Column definition used by [StickySortableDataTable].
-class TableColumnDef {
-  const TableColumnDef({
-    required this.title,
-    this.width,
-    this.sortable = true,
-    this.comparator,
-    this.alignment = TextAlign.start,
+/// Represents a row of cells.
+class TableRowData {
+  TableRowData({
+    required this.cells,
   });
 
-  final String title;
-  final double? width;
-  final bool sortable;
-  final int Function(TableRowData a, TableRowData b)? comparator;
-  final TextAlign alignment;
+  final List<TableCellData> cells;
 }
 
-/// Row data used by [StickySortableDataTable].
-class TableRowData {
-  const TableRowData({required this.cells});
+/// Sorting direction for a column.
+enum SortDirection { asc, desc }
 
-  final List<TableCellData> cells;
+/// Represents the current sorting state.
+class SortState {
+  const SortState({required this.columnIndex, required this.direction});
+
+  final int columnIndex;
+  final SortDirection direction;
 }
